@@ -7,4 +7,4 @@
 # .launch/SpeedTrials2D/SpeedTrials2D.exe
 
 3. Run Script
-# python sample_drive.py
+# python drive.py
