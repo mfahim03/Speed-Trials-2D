@@ -8,6 +8,7 @@ import keyboard
 import select
 import ctypes
 
+from perception import analyze_frame_quality, choose_token_action, detect_trailing_car
 from rt_shared import data_lock, decision_lock, shared_data
 
 # ---------------------------------------------------------
