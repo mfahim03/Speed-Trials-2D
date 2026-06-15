@@ -8,6 +8,8 @@ import keyboard
 import select
 import ctypes
 
+from rt_shared import data_lock, decision_lock, shared_data
+
 # ---------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------
@@ -17,22 +19,22 @@ BACK_CAMERA_PORT = 8082
 CONTROL_HOST = '127.0.0.1'
 CONTROL_PORT = 8081
 
-# Shared Resources with Mutex Lock for Concurrency
-shared_data = {
-    'latest_front_frame': None,
-    'latest_back_frame': None,
-    'steering_input' : 0.0,
-    'acceleration_input' : 0.0
-}
-data_lock = threading.Lock()
 is_running = True
 
 # Manual control tuning
-STEERING_TAP_DURATION = 0.12
+AUTO_DRIVE_ENABLED = True
+LOW_BRIGHTNESS_ACCELERATION = -1.0
+STEERING_TAP_DURATION = 0.22
+STEERING_TAP_COOLDOWN = 0.45
+LANE_COUNT = 4
+LANE_LEFT = 0
+LANE_RIGHT = LANE_COUNT - 1
+current_lane = 1
 last_left_pressed = False
 last_right_pressed = False
 steering_tap_until = 0.0
 steering_tap_value = 0.0
+auto_next_tap_time = 0.0
 
 # ---------------------------------------------------------
 # Real-Time Scheduling Framework (Do not change this in your code)
@@ -205,6 +207,17 @@ def read_front_camera_task():
 def read_back_camera_task():
     read_single_camera(back_camera_sock, "Back Camera", 'latest_back_frame')
 
+# Image processing code to decide how to control the car
+def clamp_lane(lane):
+    return max(LANE_LEFT, min(LANE_RIGHT, lane))
+
+def steering_towards_lane(target_lane):
+    if target_lane > current_lane:
+        return 1.0
+    if target_lane < current_lane:
+        return -1.0
+    return 0.0
+
 def processing_task():
     #This is where you write your image processing code to decide how to control the car
     #You can use libraries like OpenCV to process the image
@@ -212,15 +225,64 @@ def processing_task():
     #Remember to use the shared_data to get the latest frame
     with data_lock:
         front_frame = shared_data['latest_front_frame']
+        back_frame = shared_data['latest_back_frame']
     
-    if front_frame is not None:
-        # write your processing here
-        pass
+    if front_frame is None:
+        with decision_lock:
+            shared_data['frame_ok'] = False
+        return
+
+    front_ok, front_low_brightness = analyze_frame_quality(front_frame)
+    if not front_ok:
+        with decision_lock:
+            shared_data['steering_input'] = 0.0
+            shared_data['acceleration_input'] = LOW_BRIGHTNESS_ACCELERATION
+            shared_data['detected_token'] = 'none'
+            shared_data['event_type'] = 'low_brightness'
+            shared_data['low_brightness'] = True
+            shared_data['frame_ok'] = False
+        return
+
+    steering_input, acceleration_input, detected_token, green_lane, red_lane, target_lane, debug_frame = choose_token_action(
+        front_frame,
+        current_lane,
+        LANE_COUNT
+    )
+    trailing_detected, back_low_brightness, back_debug_frame = detect_trailing_car(back_frame)
+    if trailing_detected:
+        event_type = 'trailing'
+        acceleration_input = 1.0
+    else:
+        event_type = detected_token
+
+    low_brightness = front_low_brightness or back_low_brightness
+    frame_ok = front_frame is not None and back_frame is not None and not low_brightness
+    if low_brightness:
+        steering_input = 0.0
+        acceleration_input = LOW_BRIGHTNESS_ACCELERATION
+        event_type = 'low_brightness'
+
+    with decision_lock:
+        shared_data['steering_input'] = steering_input
+        shared_data['acceleration_input'] = acceleration_input
+        shared_data['detected_token'] = detected_token
+        shared_data['green_lane'] = green_lane
+        shared_data['red_lane'] = red_lane
+        shared_data['target_lane'] = target_lane
+        shared_data['event_type'] = event_type
+        shared_data['low_brightness'] = low_brightness
+        shared_data['frame_ok'] = frame_ok
+
+    cv2.imshow("Token Detection", cv2.resize(debug_frame, (640, 480)))
+    if back_debug_frame is not None:
+        cv2.imshow("Trailing Detection", cv2.resize(back_debug_frame, (640, 480)))
+    cv2.waitKey(1)
 
 def send_controls_task():
     #This is where you send the control commands to the car using the control_conn
     global control_conn, is_running
     global last_left_pressed, last_right_pressed, steering_tap_until, steering_tap_value
+    global auto_next_tap_time, current_lane
     if control_conn is None:
         return
     
@@ -229,11 +291,11 @@ def send_controls_task():
     #acceleration_input: -1.0 to 1.0 (reverse to forward)
     # W / Up: accelerate, S / Down: reverse/brake
     # A / Left and D / Right send short steering taps for lane switching.
-    acceleration_input = 0.0
+    manual_acceleration = None
     if keyboard.is_pressed('w') or keyboard.is_pressed('up'):
-        acceleration_input = 1.0
+        manual_acceleration = 1.0
     elif keyboard.is_pressed('s') or keyboard.is_pressed('down'):
-        acceleration_input = -1.0
+        manual_acceleration = -1.0
 
     now = time.time()
     left_pressed = keyboard.is_pressed('a') or keyboard.is_pressed('left')
@@ -242,17 +304,37 @@ def send_controls_task():
     if left_pressed and not last_left_pressed:
         steering_tap_value = -1.0
         steering_tap_until = now + STEERING_TAP_DURATION
+        current_lane = clamp_lane(current_lane - 1)
     elif right_pressed and not last_right_pressed:
         steering_tap_value = 1.0
         steering_tap_until = now + STEERING_TAP_DURATION
+        current_lane = clamp_lane(current_lane + 1)
 
     last_left_pressed = left_pressed
     last_right_pressed = right_pressed
+
+    with decision_lock:
+        auto_steering = shared_data['steering_input']
+        auto_acceleration = shared_data['acceleration_input']
+        target_lane = shared_data['target_lane']
+
+    if AUTO_DRIVE_ENABLED and auto_steering != 0.0 and now >= auto_next_tap_time:
+        steering_tap_value = steering_towards_lane(target_lane)
+        steering_tap_until = now + STEERING_TAP_DURATION
+        auto_next_tap_time = now + STEERING_TAP_COOLDOWN
+        current_lane = clamp_lane(current_lane + int(steering_tap_value))
 
     if now < steering_tap_until:
         steering_input = steering_tap_value
     else:
         steering_input = 0.0
+
+    if manual_acceleration is not None:
+        acceleration_input = manual_acceleration
+    elif AUTO_DRIVE_ENABLED:
+        acceleration_input = auto_acceleration
+    else:
+        acceleration_input = 0.0
 
     if keyboard.is_pressed('q'):
         is_running = False
