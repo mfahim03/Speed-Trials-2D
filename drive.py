@@ -233,15 +233,24 @@ def processing_task():
             shared_data['frame_ok'] = False
         return
 
-    front_ok, front_low_brightness = analyze_frame_quality(front_frame)
+    front_ok, front_low_brightness, front_corrupted = analyze_frame_quality(front_frame)
     if not front_ok:
         with decision_lock:
-            shared_data['steering_input'] = 0.0
-            shared_data['acceleration_input'] = LOW_BRIGHTNESS_ACCELERATION
-            shared_data['detected_token'] = 'none'
-            shared_data['event_type'] = 'low_brightness'
-            shared_data['low_brightness'] = True
+            shared_data['low_brightness'] = front_low_brightness
+            shared_data['frame_corrupted'] = front_corrupted
             shared_data['frame_ok'] = False
+
+            if front_low_brightness:
+                shared_data['steering_input'] = 0.0
+                shared_data['acceleration_input'] = LOW_BRIGHTNESS_ACCELERATION
+                shared_data['detected_token'] = 'none'
+                shared_data['event_type'] = 'low_brightness'
+            else:  # frame_corrupted
+                shared_data['steering_input'] = 0.0
+                shared_data['acceleration_input'] = 0.7
+                shared_data['target_lane'] = current_lane
+                shared_data['detected_token'] = 'unknown'
+                shared_data['event_type'] = 'frame_corrupted'
         return
 
     steering_input, acceleration_input, detected_token, green_lane, red_lane, target_lane, debug_frame = choose_token_action(

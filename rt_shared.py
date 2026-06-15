@@ -12,6 +12,7 @@ shared_data = {
     'target_lane': 1,
     'event_type': 'none',
     'low_brightness': False,
+    'frame_corrupted': False,
     'frame_ok': False
 }
 

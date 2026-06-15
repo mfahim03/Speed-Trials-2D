@@ -3,16 +3,17 @@ import numpy as np
 
 
 TOKEN_MIN_AREA = 300
-GREEN_MIN_AREA = 220
+GREEN_MIN_AREA = 100
 DANGER_MIN_AREA = 180
 PATH_DANGER_BAND = 0.42
 TOKEN_ROI_TOP_RATIO = 0.12
 LOW_BRIGHTNESS_THRESHOLD = 45
+GREYSCALE_SATURATION_THRESHOLD = 20  
 TRAILING_MIN_AREA_RATIO = 0.035
 TRAILING_CENTER_BAND = 0.70
 
 COLOR_RANGES = {
-    'green': [(np.array([40, 70, 60]), np.array([85, 255, 255]))],
+    'green': [(np.array([35, 40, 40]), np.array([90, 255, 255]))],
     'yellow': [(np.array([18, 80, 80]), np.array([35, 255, 255]))],
     'red': [
         (np.array([0, 80, 80]), np.array([10, 255, 255])),
@@ -71,16 +72,22 @@ def lane_for_color(tokens, color_name):
 
 def analyze_frame_quality(frame):
     if frame is None:
-        return False, False
+        return False, False, False
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     average_brightness = float(np.mean(gray))
     low_brightness = average_brightness < LOW_BRIGHTNESS_THRESHOLD
-    return not low_brightness, low_brightness
+
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    average_saturation = float(np.mean(hsv[:, :, 1]))
+    frame_corrupted = average_saturation < GREYSCALE_SATURATION_THRESHOLD
+
+    frame_ok = not low_brightness and not frame_corrupted
+    return frame_ok, low_brightness, frame_corrupted
 
 
 def detect_trailing_car(back_frame):
-    frame_ok, low_brightness = analyze_frame_quality(back_frame)
+    frame_ok, low_brightness, _ = analyze_frame_quality(back_frame)
     if not frame_ok:
         return False, low_brightness, back_frame
 
