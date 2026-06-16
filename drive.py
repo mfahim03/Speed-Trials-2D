@@ -225,6 +225,7 @@ def processing_task():
     #You can use libraries like OpenCV to process the image
     #There is no limtation to the complexity of the processing task, you can use any libraries you want
     #Remember to use the shared_data to get the latest frame
+    global current_lane
     with data_lock:
         front_frame = shared_data['latest_front_frame']
         back_frame = shared_data['latest_back_frame']
@@ -235,6 +236,7 @@ def processing_task():
         return
 
     front_ok, front_low_brightness, front_corrupted = analyze_frame_quality(front_frame)
+
     if not front_ok:
         with decision_lock:
             shared_data['low_brightness'] = front_low_brightness
@@ -274,15 +276,30 @@ def processing_task():
         event_type = 'low_brightness'
 
     with decision_lock:
+        # Always write token/lane info
         shared_data['steering_input'] = steering_input
-        shared_data['acceleration_input'] = acceleration_input
         shared_data['detected_token'] = detected_token
         shared_data['green_lane'] = green_lane
         shared_data['red_lane'] = red_lane
         shared_data['target_lane'] = target_lane
-        shared_data['event_type'] = event_type
-        shared_data['low_brightness'] = low_brightness
-        shared_data['frame_ok'] = frame_ok
+        shared_data['low_brightness'] = front_low_brightness
+        shared_data['frame_corrupted'] = front_corrupted
+        shared_data['frame_ok'] = front_ok   # False if corrupted, True otherwise
+
+        # Priority 1: Frame corrupted – steer to tokens, but cap speed for safety
+        if front_corrupted:
+            shared_data['event_type'] = 'frame_corrupted'
+            shared_data['acceleration_input'] = min(acceleration_input, 0.5)
+        
+        # Priority 2: Trailing car detected – floor it to escape
+        elif trailing_detected:
+            shared_data['event_type'] = 'trailing'
+            shared_data['acceleration_input'] = 1.0
+
+        # Priority 3: Normal operation – use token-based acceleration
+        else:
+            shared_data['event_type'] = detected_token
+            shared_data['acceleration_input'] = acceleration_input
 
     cv2.imshow("Token Detection", cv2.resize(debug_frame, (640, 480)))
     if back_debug_frame is not None:
