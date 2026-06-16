@@ -36,6 +36,7 @@ last_right_pressed = False
 steering_tap_until = 0.0
 steering_tap_value = 0.0
 auto_next_tap_time = 0.0
+trailing_tap_cooldown = 0.0
 
 # ---------------------------------------------------------
 # Real-Time Scheduling Framework (Do not change this in your code)
@@ -293,6 +294,7 @@ def send_controls_task():
     global control_conn, is_running
     global last_left_pressed, last_right_pressed, steering_tap_until, steering_tap_value
     global auto_next_tap_time, current_lane
+    global trailing_tap_cooldown
     if control_conn is None:
         return
     
