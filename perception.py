@@ -11,8 +11,8 @@ LOW_BRIGHTNESS_THRESHOLD = 45
 GREYSCALE_SATURATION_THRESHOLD = 20
 TRAILING_MIN_AREA_RATIO = 0.035
 TRAILING_CENTER_BAND = 0.70
-POLICE_BLUE_MIN_PIXELS = 80  # raised from 25 because the game night background was triggering false positives
-POLICE_RED_MIN_PIXELS = 40   # raised too, both must still appear together to count as a police siren
+POLICE_BLUE_BLOB_AREA = 300  # minimum blob area for police car blue section
+POLICE_RED_BLOB_AREA  = 200  # minimum blob area for police car red section
 
 COLOR_RANGES = {
     # Green token sprite: light lime green centered near OpenCV HSV H=60.
@@ -149,32 +149,41 @@ def detect_trailing_car(back_frame):
 
 
 def detect_police_event(frame):
-    # Check if a police car is visible in the front camera
-    # A police siren shows both blue and red lights at the same time
-    # Normal tokens are only one colour so this combination is a reliable signal of a police event ahead
     if frame is None:
         return False
 
     height, width = frame.shape[:2]
-    # Only scan the middle road area. Police car will appear on the road ahead
-    # Skip the very top (game HUD) and very bottom (car hood)
+
+    # The police car spawns on the road ahead. Scan the center of the frame
+    # where the car would appear as it approaches. Skip the HUD at top and the player car at bottom.
     roi = frame[int(height * 0.15):int(height * 0.55), int(width * 0.20):int(width * 0.80)]
 
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
-    # Police siren has a bright blue light (HSV hue range 100 to 130 covers this)
-    blue_mask = cv2.inRange(hsv, np.array([100, 120, 100]), np.array([130, 255, 255]))
+    # Police car body has a bright blue half. High saturation (150+) filters out the dark night sky
+    # which shares the same hue but is too desaturated to match.
+    blue_mask = cv2.inRange(hsv, np.array([100, 150, 80]), np.array([135, 255, 255]))
 
-    # Police siren also has a red light. Red colour wraps around the hue wheel
-    # Check two separate ranges and combine them into one mask
-    red_mask1 = cv2.inRange(hsv, np.array([0, 120, 100]), np.array([10, 255, 255]))
-    red_mask2 = cv2.inRange(hsv, np.array([170, 120, 100]), np.array([179, 255, 255]))
-    red_mask = cv2.bitwise_or(red_mask1, red_mask2)
+    # Police car body also has a red half. Red wraps around the hue wheel so we check both ends.
+    red_mask1 = cv2.inRange(hsv, np.array([0,   150, 80]), np.array([10,  255, 255]))
+    red_mask2 = cv2.inRange(hsv, np.array([165, 150, 80]), np.array([179, 255, 255]))
+    red_mask  = cv2.bitwise_or(red_mask1, red_mask2)
 
-    blue_pixels = cv2.countNonZero(blue_mask)
-    red_pixels = cv2.countNonZero(red_mask)
+    # Close small gaps so the car body reads as one solid shape
+    kernel = np.ones((5, 5), np.uint8)
+    blue_mask = cv2.morphologyEx(blue_mask, cv2.MORPH_CLOSE, kernel)
+    red_mask  = cv2.morphologyEx(red_mask,  cv2.MORPH_CLOSE, kernel)
 
-    return blue_pixels >= POLICE_BLUE_MIN_PIXELS and red_pixels >= POLICE_RED_MIN_PIXELS
+    # Find contours and check for a solid blob rather than just scattered pixels.
+    # The night sky background leaks diffuse blue across many small pixels but never forms
+    # one large blob. A real police car body will produce a single large solid blob.
+    blue_contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    red_contours,  _ = cv2.findContours(red_mask,  cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    has_blue_blob = any(cv2.contourArea(c) >= POLICE_BLUE_BLOB_AREA for c in blue_contours)
+    has_red_blob  = any(cv2.contourArea(c) >= POLICE_RED_BLOB_AREA  for c in red_contours)
+
+    return has_blue_blob and has_red_blob
 
 
 def choose_token_action(frame, current_lane, lane_count, police_mode=False):

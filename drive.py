@@ -32,6 +32,7 @@ LANE_LEFT = 0
 LANE_RIGHT = LANE_COUNT - 1
 POLICE_MODE_TIMEOUT = 8.0   # how many seconds we wait for the red token before giving up on police mode
 POLICE_COOLDOWN = 15.0      # how many seconds before police mode can trigger again after it clears
+POLICE_STREAK_REQUIRED = 5  # consecutive frames police must be detected before we trust it (kills false positives)
 current_lane = 3
 last_left_pressed = False
 last_right_pressed = False
@@ -39,8 +40,9 @@ steering_tap_until = 0.0
 steering_tap_value = 0.0
 auto_next_tap_time = 0.0
 trailing_tap_cooldown = 0.0
-police_active_since = 0.0   # records the time when police mode started
+police_active_since = 0.0    # records the time when police mode started
 police_last_cleared = 0.0   # records when police mode last ended so we do not re-trigger too fast
+police_detection_streak = 0  # how many consecutive frames the police siren has been detected
 
 # ---------------------------------------------------------
 # Real-Time Scheduling Framework (Do not change this in your code)
@@ -229,7 +231,7 @@ def processing_task():
     #You can use libraries like OpenCV to process the image
     #There is no limtation to the complexity of the processing task, you can use any libraries you want
     #Remember to use the shared_data to get the latest frame
-    global current_lane, police_active_since, police_last_cleared
+    global current_lane, police_active_since, police_last_cleared, police_detection_streak
     with data_lock:
         front_frame = shared_data['latest_front_frame']
         back_frame = shared_data['latest_back_frame']
@@ -290,24 +292,32 @@ def processing_task():
 
     # update police_active based on what we just detected and decided
     now_t = time.time()
+
+    # count consecutive frames where the siren is visible — resets to 0 the moment it disappears
+    if police_detected:
+        police_detection_streak += 1
+    else:
+        police_detection_streak = 0
+
     with decision_lock:
         cooldown_passed = now_t - police_last_cleared > POLICE_COOLDOWN
-        if police_detected and not shared_data['police_active'] and cooldown_passed:
-            # police car appeared and enough time passed since the last event so we activate
+        if police_detection_streak >= POLICE_STREAK_REQUIRED and not shared_data['police_active'] and cooldown_passed:
+            # siren held for enough consecutive frames — this is a real police event, not a flicker
             shared_data['police_active'] = True
             police_active_since = now_t
-            # print("[POLICE] Police car detected! Now chasing next red token.")
+            police_detection_streak = 0
+            print("[POLICE] Police car detected! Now chasing next red token.")
         elif shared_data['police_active']:
             if detected_token == 'red_target':
                 # steered toward the red token successfully, police event is done
                 shared_data['police_active'] = False
                 police_last_cleared = now_t
-                # print("[POLICE] Red token collected! Back to normal driving.")
+                print("[POLICE] Red token collected! Back to normal driving.")
             elif now_t - police_active_since > POLICE_MODE_TIMEOUT:
                 # ran out of time to find the red token, reset and continue
                 shared_data['police_active'] = False
                 police_last_cleared = now_t
-                #print("[POLICE] Police mode timed out. Resuming normal driving.")
+                print("[POLICE] Police mode timed out. Resuming normal driving.")
 
     with decision_lock:
         # Always write token/lane info
