@@ -329,6 +329,7 @@ def send_controls_task():
         auto_steering = shared_data['steering_input']
         auto_acceleration = shared_data['acceleration_input']
         target_lane = shared_data['target_lane']
+        event_type = shared_data['event_type']
 
     if AUTO_DRIVE_ENABLED and auto_steering != 0.0 and now >= auto_next_tap_time:
         steering_tap_value = steering_towards_lane(target_lane)
