@@ -266,7 +266,7 @@ def processing_task():
     else:
         event_type = detected_token
 
-    low_brightness = front_low_brightness or back_low_brightness
+    low_brightness = front_low_brightness
     frame_ok = front_frame is not None and back_frame is not None and not low_brightness
     if low_brightness:
         steering_input = 0.0

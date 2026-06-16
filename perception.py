@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 
 
-TOKEN_MIN_AREA = 300
+TOKEN_MIN_AREA = 80
 GREEN_MIN_AREA = 100
 DANGER_MIN_AREA = 180
 PATH_DANGER_BAND = 0.42
@@ -13,7 +13,7 @@ TRAILING_MIN_AREA_RATIO = 0.035
 TRAILING_CENTER_BAND = 0.70
 
 COLOR_RANGES = {
-    'green': [(np.array([35, 40, 40]), np.array([90, 255, 255]))],
+    'green': [(np.array([35, 30, 30]), np.array([95, 255, 255]))],
     'yellow': [(np.array([18, 80, 80]), np.array([35, 255, 255]))],
     'red': [
         (np.array([0, 80, 80]), np.array([10, 255, 255])),
@@ -47,7 +47,7 @@ def find_color_tokens(frame, color_name):
         x, y, w, h = cv2.boundingRect(contour)
         aspect_ratio = w / h if h else 0
         fill_ratio = area / (w * h) if w * h else 0
-        if aspect_ratio < 0.45 or aspect_ratio > 2.20 or fill_ratio < 0.30:
+        if aspect_ratio < 0.30 or aspect_ratio > 3.0 or fill_ratio < 0.20:
             continue
 
         tokens.append({
