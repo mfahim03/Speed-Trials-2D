@@ -11,6 +11,8 @@ LOW_BRIGHTNESS_THRESHOLD = 45
 GREYSCALE_SATURATION_THRESHOLD = 20
 TRAILING_MIN_AREA_RATIO = 0.035
 TRAILING_CENTER_BAND = 0.70
+POLICE_BLUE_MIN_PIXELS = 25  # how many blue pixels we need to see before confirming it is a police siren
+POLICE_RED_MIN_PIXELS = 15   # same for red pixels. both must appear together because a normal token is only one colour
 
 COLOR_RANGES = {
     # Green token sprite: light lime green centered near OpenCV HSV H=60.
@@ -146,13 +148,42 @@ def detect_trailing_car(back_frame):
     return trailing_detected, low_brightness, debug_frame
 
 
+def detect_police_event(frame):
+    # Check if a police car is visible in the front camera
+    # A police siren shows both blue and red lights at the same time
+    # Normal tokens are only one colour so this combination is a reliable signal of a police event ahead
+    if frame is None:
+        return False
+
+    height, width = frame.shape[:2]
+    # Only scan the middle road area. Police car will appear on the road ahead
+    # Skip the very top (game HUD) and very bottom (car hood)
+    roi = frame[int(height * 0.15):int(height * 0.55), int(width * 0.20):int(width * 0.80)]
+
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+
+    # Police siren has a bright blue light (HSV hue range 100 to 130 covers this)
+    blue_mask = cv2.inRange(hsv, np.array([100, 120, 100]), np.array([130, 255, 255]))
+
+    # Police siren also has a red light. Red colour wraps around the hue wheel
+    # Check two separate ranges and combine them into one mask
+    red_mask1 = cv2.inRange(hsv, np.array([0, 120, 100]), np.array([10, 255, 255]))
+    red_mask2 = cv2.inRange(hsv, np.array([170, 120, 100]), np.array([179, 255, 255]))
+    red_mask = cv2.bitwise_or(red_mask1, red_mask2)
+
+    blue_pixels = cv2.countNonZero(blue_mask)
+    red_pixels = cv2.countNonZero(red_mask)
+
+    return blue_pixels >= POLICE_BLUE_MIN_PIXELS and red_pixels >= POLICE_RED_MIN_PIXELS
+
+
 def choose_token_action(frame, current_lane, lane_count):
     tokens = []
     for color_name in ('green', 'red', 'yellow'):
         tokens.extend(find_color_tokens(frame, color_name))
 
     if not tokens:
-        # No tokens visible — cruise at moderate speed, stay in lane
+        # No tokens visible, just cruise and stay in current lane
         return 0.0, 0.6, 'none', None, None, current_lane, frame
 
     height, width = frame.shape[:2]

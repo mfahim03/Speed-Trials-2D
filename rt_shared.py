@@ -13,7 +13,8 @@ shared_data = {
     'event_type': 'none',
     'low_brightness': False,
     'frame_corrupted': False,
-    'frame_ok': False
+    'frame_ok': False,
+    'police_active': False
 }
 
 data_lock = threading.Lock()
