@@ -11,8 +11,8 @@ LOW_BRIGHTNESS_THRESHOLD = 45
 GREYSCALE_SATURATION_THRESHOLD = 20
 TRAILING_MIN_AREA_RATIO = 0.035
 TRAILING_CENTER_BAND = 0.70
-POLICE_BLUE_MIN_PIXELS = 25  # how many blue pixels we need to see before confirming it is a police siren
-POLICE_RED_MIN_PIXELS = 15   # same for red pixels. both must appear together because a normal token is only one colour
+POLICE_BLUE_MIN_PIXELS = 80  # raised from 25 because the game night background was triggering false positives
+POLICE_RED_MIN_PIXELS = 40   # raised too, both must still appear together to count as a police siren
 
 COLOR_RANGES = {
     # Green token sprite: light lime green centered near OpenCV HSV H=60.
@@ -177,7 +177,8 @@ def detect_police_event(frame):
     return blue_pixels >= POLICE_BLUE_MIN_PIXELS and red_pixels >= POLICE_RED_MIN_PIXELS
 
 
-def choose_token_action(frame, current_lane, lane_count):
+def choose_token_action(frame, current_lane, lane_count, police_mode=False):
+    # when police_mode is True, red token becomes a target we need to collect, not to avoid
     tokens = []
     for color_name in ('green', 'red', 'yellow'):
         tokens.extend(find_color_tokens(frame, color_name))
@@ -214,6 +215,31 @@ def choose_token_action(frame, current_lane, lane_count):
 
     green_lane = lane_for_color(tokens, 'green')
     red_lane = lane_for_color(tokens, 'red')
+
+    # police mode: red token is now the goal, not a danger
+    # steer toward the red token at full speed to collect it and clear the police event
+    if police_mode:
+        red_targets = [t for t in tokens if t['color'] == 'red' and t['area'] >= DANGER_MIN_AREA]
+        if red_targets:
+            chosen = max(red_targets, key=lambda t: t['area'])
+            target_lane = chosen['lane']
+            if target_lane > current_lane:
+                steering = 1.0
+            elif target_lane < current_lane:
+                steering = -1.0
+            else:
+                steering = 0.0
+            debug_frame = frame.copy()
+            x, y, w, h = chosen['box']
+            cv2.rectangle(debug_frame, (x, y), (x + w, y + h), (0, 100, 255), 3)
+            cv2.putText(debug_frame, f"POLICE MODE: chasing red at lane {target_lane}",
+                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 100, 255), 2)
+            return steering, 1.0, 'red_target', green_lane, red_lane, target_lane, debug_frame
+        # police mode is active but red token is not visible yet, cruise and keep looking
+        debug_frame = frame.copy()
+        cv2.putText(debug_frame, "POLICE MODE: looking for red token",
+                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 100, 255), 2)
+        return 0.0, 0.85, 'police_waiting', green_lane, red_lane, current_lane, debug_frame
 
     danger_tokens = [
         token for token in tokens

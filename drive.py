@@ -8,7 +8,7 @@ import keyboard
 import select
 import ctypes
 
-from perception import analyze_frame_quality, choose_token_action, detect_trailing_car
+from perception import analyze_frame_quality, choose_token_action, detect_trailing_car, detect_police_event
 from rt_shared import data_lock, decision_lock, shared_data
 
 # ---------------------------------------------------------
@@ -30,6 +30,8 @@ STEERING_TAP_COOLDOWN = 0.45
 LANE_COUNT = 4
 LANE_LEFT = 0
 LANE_RIGHT = LANE_COUNT - 1
+POLICE_MODE_TIMEOUT = 8.0   # how many seconds we wait for the red token before giving up on police mode
+POLICE_COOLDOWN = 15.0      # how many seconds before police mode can trigger again after it clears
 current_lane = 3
 last_left_pressed = False
 last_right_pressed = False
@@ -37,6 +39,8 @@ steering_tap_until = 0.0
 steering_tap_value = 0.0
 auto_next_tap_time = 0.0
 trailing_tap_cooldown = 0.0
+police_active_since = 0.0   # records the time when police mode started
+police_last_cleared = 0.0   # records when police mode last ended so we do not re-trigger too fast
 
 # ---------------------------------------------------------
 # Real-Time Scheduling Framework (Do not change this in your code)
@@ -225,11 +229,11 @@ def processing_task():
     #You can use libraries like OpenCV to process the image
     #There is no limtation to the complexity of the processing task, you can use any libraries you want
     #Remember to use the shared_data to get the latest frame
-    global current_lane
+    global current_lane, police_active_since, police_last_cleared
     with data_lock:
         front_frame = shared_data['latest_front_frame']
         back_frame = shared_data['latest_back_frame']
-    
+
     if front_frame is None:
         with decision_lock:
             shared_data['frame_ok'] = False
@@ -256,10 +260,19 @@ def processing_task():
                 shared_data['event_type'] = 'frame_corrupted'
         return
 
+    # check if police mode is currently on before making token decisions
+    with decision_lock:
+        police_mode = shared_data['police_active']
+
+    # check if a police car is visible in the front camera right now
+    police_detected = detect_police_event(front_frame)
+
+    # pass police_mode so choose_token_action knows to chase red instead of avoid it
     steering_input, acceleration_input, detected_token, green_lane, red_lane, target_lane, debug_frame = choose_token_action(
         front_frame,
         current_lane,
-        LANE_COUNT
+        LANE_COUNT,
+        police_mode=police_mode
     )
     trailing_detected, back_low_brightness, back_debug_frame = detect_trailing_car(back_frame)
     if trailing_detected:
@@ -275,6 +288,27 @@ def processing_task():
         acceleration_input = LOW_BRIGHTNESS_ACCELERATION
         event_type = 'low_brightness'
 
+    # update police_active based on what we just detected and decided
+    now_t = time.time()
+    with decision_lock:
+        cooldown_passed = now_t - police_last_cleared > POLICE_COOLDOWN
+        if police_detected and not shared_data['police_active'] and cooldown_passed:
+            # police car appeared and enough time passed since the last event so we activate
+            shared_data['police_active'] = True
+            police_active_since = now_t
+            # print("[POLICE] Police car detected! Now chasing next red token.")
+        elif shared_data['police_active']:
+            if detected_token == 'red_target':
+                # steered toward the red token successfully, police event is done
+                shared_data['police_active'] = False
+                police_last_cleared = now_t
+                # print("[POLICE] Red token collected! Back to normal driving.")
+            elif now_t - police_active_since > POLICE_MODE_TIMEOUT:
+                # ran out of time to find the red token, reset and continue
+                shared_data['police_active'] = False
+                police_last_cleared = now_t
+                #print("[POLICE] Police mode timed out. Resuming normal driving.")
+
     with decision_lock:
         # Always write token/lane info
         shared_data['steering_input'] = steering_input
@@ -284,7 +318,7 @@ def processing_task():
         shared_data['target_lane'] = target_lane
         shared_data['low_brightness'] = front_low_brightness
         shared_data['frame_corrupted'] = front_corrupted
-        shared_data['frame_ok'] = front_ok   # False if corrupted, True otherwise
+        shared_data['frame_ok'] = front_ok
 
         # Priority 1: Frame corrupted – steer to tokens, but cap speed for safety
         if front_corrupted:
@@ -296,7 +330,13 @@ def processing_task():
             shared_data['event_type'] = 'trailing'
             shared_data['acceleration_input'] = 1.0
 
-        # Priority 3: Normal operation – use token-based acceleration
+        # Priority 3: police mode, use the acceleration choose_token_action already decided
+        # (full speed 1.0 when chasing red, 0.85 when still scanning for red)
+        elif shared_data['police_active']:
+            shared_data['event_type'] = 'police'
+            shared_data['acceleration_input'] = acceleration_input
+
+        # Priority 4: normal token-based driving
         else:
             shared_data['event_type'] = detected_token
             shared_data['acceleration_input'] = acceleration_input
