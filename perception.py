@@ -13,12 +13,12 @@ TRAILING_MIN_AREA_RATIO = 0.035
 TRAILING_CENTER_BAND = 0.70
 
 COLOR_RANGES = {
-    # Tuned green: wider hue (30–95), lower S/V min (20) to catch darker/paler greens
-    'green': [(np.array([30, 20, 20]), np.array([95, 255, 255]))],
-    'yellow': [(np.array([18, 80, 80]), np.array([35, 255, 255]))],
+    # Green token sprite: light lime green centered near OpenCV HSV H=60.
+    'green': [(np.array([50, 70, 120]), np.array([70, 255, 255]))],
+    'yellow': [(np.array([13, 55, 100]), np.array([36, 255, 255]))],
     'red': [
-        (np.array([0, 80, 80]), np.array([10, 255, 255])),
-        (np.array([170, 80, 80]), np.array([179, 255, 255]))
+        (np.array([0, 70, 120]), np.array([8, 255, 255])),
+        (np.array([175, 70, 120]), np.array([179, 255, 255]))
     ]
 }
 
