@@ -3,7 +3,7 @@ import numpy as np
 
 
 TOKEN_MIN_AREA = 80          # was 300 — was filtering green tokens before GREEN_MIN_AREA check
-GREEN_MIN_AREA = 80          # was 100 — catch green tokens earlier/farther away
+GREEN_MIN_AREA = 100         # changed from 80 (was 220 originally) to match spec
 DANGER_MIN_AREA = 120        # was 180 — detect red/yellow hazards sooner
 PATH_DANGER_BAND = 0.65      # was 0.42 — wider band, avoids more off-center dangers
 TOKEN_ROI_TOP_RATIO = 0.10   # was 0.12 — look slightly higher up the frame
@@ -13,8 +13,8 @@ TRAILING_MIN_AREA_RATIO = 0.035
 TRAILING_CENTER_BAND = 0.70
 
 COLOR_RANGES = {
-    # Wider hue (35–95), lower S/V minimums (30, 30) — catches pale, bright, dark greens
-    'green': [(np.array([35, 30, 30]), np.array([95, 255, 255]))],
+    # Tuned green: wider hue (30–95), lower S/V min (20) to catch darker/paler greens
+    'green': [(np.array([30, 20, 20]), np.array([95, 255, 255]))],
     'yellow': [(np.array([18, 80, 80]), np.array([35, 255, 255]))],
     'red': [
         (np.array([0, 80, 80]), np.array([10, 255, 255])),
@@ -78,10 +78,14 @@ def analyze_frame_quality(frame):
         return False, False, False
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    height = frame.shape[0]
+    sample_region = frame[:int(height * 0.7), :]  # exclude bottom 30% (close-up token area)
+
+    gray = cv2.cvtColor(sample_region, cv2.COLOR_BGR2GRAY)
     average_brightness = float(np.mean(gray))
     low_brightness = average_brightness < LOW_BRIGHTNESS_THRESHOLD
 
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    hsv = cv2.cvtColor(sample_region, cv2.COLOR_BGR2HSV)
     average_saturation = float(np.mean(hsv[:, :, 1]))
     frame_corrupted = average_saturation < GREYSCALE_SATURATION_THRESHOLD
 
