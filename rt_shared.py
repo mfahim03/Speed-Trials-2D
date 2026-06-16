@@ -4,7 +4,7 @@ import threading
 shared_data = {
     'latest_front_frame': None,
     'latest_back_frame': None,
-    'steering_input': 1.0,
+    'steering_input': 0.0,
     'acceleration_input': 0.0,
     'detected_token': 'none',
     'green_lane': None,
