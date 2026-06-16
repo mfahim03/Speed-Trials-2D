@@ -330,6 +330,24 @@ def send_controls_task():
         auto_acceleration = shared_data['acceleration_input']
         target_lane = shared_data['target_lane']
         event_type = shared_data['event_type']
+        
+        # MUNA — Trailing car auto lane switch
+        if event_type == 'trailing' and now >= trailing_tap_cooldown:
+              if current_lane <= 1:
+                 # left side — tap right
+                 steering_tap_value = 1.0
+                 steering_tap_until = now + STEERING_TAP_DURATION
+                 current_lane = clamp_lane(current_lane + 1)
+              else:
+                 # right side — tap left
+                 steering_tap_value = -1.0
+                 steering_tap_until = now + STEERING_TAP_DURATION
+                 current_lane = clamp_lane(current_lane - 1)
+                 trailing_tap_cooldown = now + 2.0  # 2 second cooldown
+
+        # MUNA — Police mode acceleration
+        if event_type == 'police':
+            auto_acceleration = 1.0
 
     if AUTO_DRIVE_ENABLED and auto_steering != 0.0 and now >= auto_next_tap_time:
         steering_tap_value = steering_towards_lane(target_lane)
