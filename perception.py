@@ -180,10 +180,23 @@ def detect_police_event(frame):
     blue_contours, _ = cv2.findContours(blue_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     red_contours,  _ = cv2.findContours(red_mask,  cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    has_blue_blob = any(cv2.contourArea(c) >= POLICE_BLUE_BLOB_AREA for c in blue_contours)
-    has_red_blob  = any(cv2.contourArea(c) >= POLICE_RED_BLOB_AREA  for c in red_contours)
+    blue_blobs = [c for c in blue_contours if cv2.contourArea(c) >= POLICE_BLUE_BLOB_AREA]
+    red_blobs  = [c for c in red_contours  if cv2.contourArea(c) >= POLICE_RED_BLOB_AREA]
 
-    return has_blue_blob and has_red_blob
+    if not blue_blobs or not red_blobs:
+        return False
+
+    largest_blue = max(blue_blobs, key=cv2.contourArea)
+    largest_red  = max(red_blobs,  key=cv2.contourArea)
+
+    bx, by, bw, bh = cv2.boundingRect(largest_blue)
+    rx, ry, rw, rh = cv2.boundingRect(largest_red)
+    dist = (((bx + bw / 2) - (rx + rw / 2)) ** 2 + ((by + bh / 2) - (ry + rh / 2)) ** 2) ** 0.5
+
+    # Red and blue halves of the police car body must be spatially adjacent.
+    # False positives (road chevrons + sky) are diagonally across the ROI; a real car's
+    # two colour halves sit side-by-side within ~40% of the ROI width.
+    return dist < roi.shape[1] * 0.40
 
 
 def choose_token_action(frame, current_lane, lane_count, police_mode=False):
@@ -228,7 +241,12 @@ def choose_token_action(frame, current_lane, lane_count, police_mode=False):
     # police mode: red token is now the goal, not a danger
     # steer toward the red token at full speed to collect it and clear the police event
     if police_mode:
-        red_targets = [t for t in tokens if t['color'] == 'red' and t['area'] >= DANGER_MIN_AREA]
+        height, width = frame.shape[:2]
+        # exclude road boundary edges (far left/right) and upper half — only real lane tokens remain
+        red_targets = [t for t in tokens if t['color'] == 'red' and t['area'] >= DANGER_MIN_AREA
+                       and height * 0.30 < t['center_y'] < height * 0.78
+                       and width * 0.15 < t['center_x'] < width * 0.73
+                       and 0.5 < t['aspect_ratio'] < 2.0]
         if red_targets:
             chosen = max(red_targets, key=lambda t: t['area'])
             target_lane = chosen['lane']

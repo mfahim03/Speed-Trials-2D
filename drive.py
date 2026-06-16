@@ -32,7 +32,7 @@ LANE_LEFT = 0
 LANE_RIGHT = LANE_COUNT - 1
 POLICE_MODE_TIMEOUT = 8.0   # how many seconds we wait for the red token before giving up on police mode
 POLICE_COOLDOWN = 15.0      # how many seconds before police mode can trigger again after it clears
-POLICE_STREAK_REQUIRED = 5  # consecutive frames police must be detected before we trust it (kills false positives)
+POLICE_STREAK_REQUIRED = 3  # consecutive frames police must be detected before we trust it (kills false positives)
 current_lane = 3
 last_left_pressed = False
 last_right_pressed = False
@@ -43,6 +43,8 @@ trailing_tap_cooldown = 0.0
 police_active_since = 0.0    # records the time when police mode started
 police_last_cleared = 0.0   # records when police mode last ended so we do not re-trigger too fast
 police_detection_streak = 0  # how many consecutive frames the police siren has been detected
+police_locked_on_red = False  # True once we've spotted the red token in police mode; only clear when red disappears
+police_event_count = 0        # increments each time police mode activates; used for numbered debug images
 
 # ---------------------------------------------------------
 # Real-Time Scheduling Framework (Do not change this in your code)
@@ -231,7 +233,7 @@ def processing_task():
     #You can use libraries like OpenCV to process the image
     #There is no limtation to the complexity of the processing task, you can use any libraries you want
     #Remember to use the shared_data to get the latest frame
-    global current_lane, police_active_since, police_last_cleared, police_detection_streak
+    global current_lane, police_active_since, police_last_cleared, police_detection_streak, police_locked_on_red, police_event_count
     with data_lock:
         front_frame = shared_data['latest_front_frame']
         back_frame = shared_data['latest_back_frame']
@@ -296,6 +298,10 @@ def processing_task():
     # count consecutive frames where the siren is visible — resets to 0 the moment it disappears
     if police_detected:
         police_detection_streak += 1
+        with decision_lock:
+            already_active = shared_data['police_active']
+        if not already_active:
+            print(f"[POLICE] Siren streak: {police_detection_streak}/{POLICE_STREAK_REQUIRED}")
     else:
         police_detection_streak = 0
 
@@ -306,16 +312,32 @@ def processing_task():
             shared_data['police_active'] = True
             police_active_since = now_t
             police_detection_streak = 0
-            print("[POLICE] Police car detected! Now chasing next red token.")
+            police_locked_on_red = False
+            police_event_count += 1
+            print(f"[POLICE] Police car detected! (event #{police_event_count}) Now chasing next red token.")
+            debug_det = front_frame.copy()
+            h_d, w_d = debug_det.shape[:2]
+            cv2.rectangle(debug_det, (int(w_d * 0.20), int(h_d * 0.15)), (int(w_d * 0.80), int(h_d * 0.55)), (0, 255, 255), 2)
+            cv2.putText(debug_det, f"Police event #{police_event_count}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            cv2.imwrite(f"debug_police_detected_{police_event_count}.png", debug_det)
         elif shared_data['police_active']:
             if detected_token == 'red_target':
-                # steered toward the red token successfully, police event is done
+                # first time we see the red token in police mode — lock on, don't clear yet
+                if not police_locked_on_red:
+                    police_locked_on_red = True
+                    print(f"[POLICE] Locked onto red token — chasing. (event #{police_event_count})")
+                    cv2.imwrite(f"debug_police_lockedon_{police_event_count}.png", debug_frame)
+            elif police_locked_on_red:
+                # we were chasing red and it vanished from view → car drove over it
                 shared_data['police_active'] = False
+                police_locked_on_red = False
                 police_last_cleared = now_t
                 print("[POLICE] Red token collected! Back to normal driving.")
-            elif now_t - police_active_since > POLICE_MODE_TIMEOUT:
+
+            if shared_data['police_active'] and now_t - police_active_since > POLICE_MODE_TIMEOUT:
                 # ran out of time to find the red token, reset and continue
                 shared_data['police_active'] = False
+                police_locked_on_red = False
                 police_last_cleared = now_t
                 print("[POLICE] Police mode timed out. Resuming normal driving.")
 
