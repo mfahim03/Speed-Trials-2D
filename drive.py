@@ -33,6 +33,13 @@ LANE_RIGHT = LANE_COUNT - 1
 POLICE_MODE_TIMEOUT = 8.0   # how many seconds we wait for the red token before giving up on police mode
 POLICE_COOLDOWN = 15.0      # how many seconds before police mode can trigger again after it clears
 POLICE_STREAK_REQUIRED = 3  # consecutive frames police must be detected before we trust it (kills false positives)
+TRAILING_CONFIRM_FRAMES = 3  # consecutive frames trailing detection must persist to trigger escape
+trailing_gone_frames = 0
+trailing_confirm_count = 0
+trailing_active = False
+trailing_lane_changed = False
+trailing_event_count = 0
+
 current_lane = 3
 last_left_pressed = False
 last_right_pressed = False
@@ -233,7 +240,10 @@ def processing_task():
     #You can use libraries like OpenCV to process the image
     #There is no limtation to the complexity of the processing task, you can use any libraries you want
     #Remember to use the shared_data to get the latest frame
-    global current_lane, police_active_since, police_last_cleared, police_detection_streak, police_locked_on_red, police_event_count
+    global current_lane, police_active_since, police_last_cleared, police_detection_streak
+    global police_locked_on_red, police_event_count
+    global trailing_event_count, trailing_lane_changed, trailing_active
+    global trailing_gone_frames, trailing_confirm_count    # add this
     with data_lock:
         front_frame = shared_data['latest_front_frame']
         back_frame = shared_data['latest_back_frame']
@@ -280,10 +290,12 @@ def processing_task():
     )
     trailing_detected, back_low_brightness, back_debug_frame = detect_trailing_car(back_frame)
     if trailing_detected:
-        event_type = 'trailing'
-        acceleration_input = 1.0
-    else:
-        event_type = detected_token
+         trailing_gone_frames = 0
+         trailing_confirm_count += 1
+         if not trailing_active and trailing_confirm_count >= TRAILING_CONFIRM_FRAMES:
+             trailing_active = True
+             trailing_lane_changed = False
+             trailing_event_count += 1
 
     low_brightness = front_low_brightness
     frame_ok = front_frame is not None and back_frame is not None and not low_brightness
@@ -357,7 +369,7 @@ def processing_task():
             shared_data['event_type'] = 'frame_corrupted'
             shared_data['acceleration_input'] = min(acceleration_input, 0.5)
         
-        # Priority 2: Trailing car detected – floor it to escape
+        # MUNA # Priority 2: Trailing car detected – floor it to escape
         elif trailing_detected:
             shared_data['event_type'] = 'trailing'
             shared_data['acceleration_input'] = 1.0
