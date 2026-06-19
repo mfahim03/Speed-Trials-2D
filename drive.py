@@ -294,7 +294,7 @@ def processing_task():
             trailing_active = False
             trailing_confirm_count = 0
 
-    # Golden Lane detection
+    # Golden Lane detectio
     gl_detected, gl_lane = detect_golden_lane(front_frame)
     if gl_detected and gl_lane is not None and not golden_lane_active:
         golden_lane_active = True
@@ -315,8 +315,8 @@ def processing_task():
         police_detection_streak += 1
         with decision_lock:
             already_active = shared_data['police_active']
-        if not already_active:
-            print(f"[POLICE] Siren streak: {police_detection_streak}/{POLICE_STREAK_REQUIRED}")
+        # if not already_active:
+        #     print(f"[POLICE] Siren streak: {police_detection_streak}/{POLICE_STREAK_REQUIRED}")
     else:
         police_detection_streak = 0
 
