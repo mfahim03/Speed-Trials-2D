@@ -316,10 +316,10 @@ def choose_token_action(frame, current_lane, lane_count, police_mode=False):
             green_chosen = max(safe_greens, key=lambda t: t['area'])
             target_lane = green_chosen['lane']
             chosen = green_chosen
-            acceleration = 0.5
+            acceleration = 1.0
         else:
             target_lane = safest_lane_away_from(chosen['lane'])
-            acceleration = 0.35
+            acceleration = 1.0
 
     # -------------------------------------------------------
     # Priority 2: Green visible, no danger in our lane
@@ -342,17 +342,17 @@ def choose_token_action(frame, current_lane, lane_count, police_mode=False):
                 # red is closer than green — dodge red first
                 chosen = max(blocking_reds, key=lambda t: t['area'])
                 target_lane = safest_lane_away_from(chosen['lane'])
-                acceleration = 0.4
+                acceleration = 1.0
             else:
                 chosen = closest_green
                 target_lane = chosen['lane']
                 # slow down if nearby reds even in adjacent lanes
-                acceleration = 0.7 if nearby_reds else 1.0
+                acceleration = 0.9 if nearby_reds else 1.0
         else:
             # all greens blocked by danger lanes
             chosen = max(tokens, key=lambda t: t['area'])
             target_lane = safest_lane_away_from(chosen['lane'])
-            acceleration = 0.4
+            acceleration = 1.0
 
     # -------------------------------------------------------
     # Priority 3: No green, danger exists but not in our lane
@@ -361,7 +361,7 @@ def choose_token_action(frame, current_lane, lane_count, police_mode=False):
         all_dangers = danger_tokens if danger_tokens else nearby_reds
         chosen = max(all_dangers, key=lambda t: t['area'])
         target_lane = current_lane
-        acceleration = 0.5
+        acceleration = 1.0
 
     # -------------------------------------------------------
     # Priority 4: Nothing relevant — cruise
@@ -369,7 +369,7 @@ def choose_token_action(frame, current_lane, lane_count, police_mode=False):
     else:
         chosen = max(tokens, key=lambda t: t['area'])
         target_lane = current_lane
-        acceleration = 0.6
+        acceleration = 1.0
 
     steering = 1.0 if target_lane > current_lane else (-1.0 if target_lane < current_lane else 0.0)
 
