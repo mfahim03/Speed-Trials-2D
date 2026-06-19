@@ -333,13 +333,13 @@ def processing_task():
             h_d, w_d = debug_det.shape[:2]
             cv2.rectangle(debug_det, (int(w_d * 0.20), int(h_d * 0.15)), (int(w_d * 0.80), int(h_d * 0.55)), (0, 255, 255), 2)
             cv2.putText(debug_det, f"Police event #{police_event_count}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            cv2.imwrite(f"debug_police_detected_{police_event_count}.png", debug_det)
+            # cv2.imwrite(f"debug_police_detected_{police_event_count}.png", debug_det)
         elif shared_data['police_active']:
             if detected_token == 'red_target':
                 if not police_locked_on_red:
                     police_locked_on_red = True
                     print(f"[POLICE] Locked onto red token — chasing. (event #{police_event_count})")
-                    cv2.imwrite(f"debug_police_lockedon_{police_event_count}.png", debug_frame)
+                    # cv2.imwrite(f"debug_police_lockedon_{police_event_count}.png", debug_frame)
             elif police_locked_on_red:
                 shared_data['police_active'] = False
                 police_locked_on_red = False
