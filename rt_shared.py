@@ -14,7 +14,9 @@ shared_data = {
     'low_brightness': False,
     'frame_corrupted': False,
     'frame_ok': False,
-    'police_active': False
+    'police_active': False,
+    'golden_lane_active': False,
+    'golden_lane_target': None,
 }
 
 data_lock = threading.Lock()
