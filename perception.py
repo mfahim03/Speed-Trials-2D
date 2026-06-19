@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-#cinta datang
+#cinta datang dan pergi
 TOKEN_MIN_AREA = 80
 GREEN_MIN_AREA = 100
 DANGER_MIN_AREA = 120
