@@ -205,7 +205,7 @@ def detect_golden_lane(frame):
     except Exception:
         pass
 
-    # Fallback: orange pixels detected but couldn't read number
+    # Fallback: orange pixels detected but couldn't read numbers
     return True, None
 
 
