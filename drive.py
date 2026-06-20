@@ -300,11 +300,11 @@ def processing_task():
         golden_lane_active = True
         golden_lane_target = gl_lane
         golden_lane_start = now_t
-        print(f"[GOLDEN LANE] Event detected! Target lane index {gl_lane}")
+        # print(f"[GOLDEN LANE] Event detected! Target lane index {gl_lane}")
     elif golden_lane_active and now_t - golden_lane_start > GOLDEN_LANE_DURATION:
         golden_lane_active = False
         golden_lane_target = None
-        print("[GOLDEN LANE] Event expired.")
+        # print("[GOLDEN LANE] Event expired.")
 
     with decision_lock:
         shared_data['golden_lane_active'] = golden_lane_active
